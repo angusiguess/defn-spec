@@ -1,9 +1,10 @@
 (ns net.danielcompton.defn-spec-alpha-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.test :refer :all]
             [net.danielcompton.defn-spec-alpha :as ds]
-            [orchestra.spec.test :as st]
-            [clojure.spec.alpha :as s])
-  (:import (clojure.lang ExceptionInfo)))
+            [net.danielcompton.defn-spec-alpha.spec :as spec]
+            [orchestra.spec.test :as st])
+  (:import clojure.lang.ExceptionInfo))
 
 (use-fixtures :each
               (fn [f]
@@ -18,6 +19,24 @@
   (some-> p get-spec s/describe))
 
 (s/def ::int int?)
+
+(defn conform-unform [sexpr]
+  (->> sexpr
+       (s/conform ::spec/defn-args)
+       (s/unform ::spec/defn-args)))
+
+(deftest conform-is-the-inverse-of-unform
+  (let [single-arity '(a [x] x)
+        keys-destructuring '(b [{:keys [a b c]}] (+ b c))
+        seq-destructuring '(c [[a b] c] (+ a c))
+        and-destructuring '(d [a & xs] xs)
+        multiple-arities '(e ([a] a) ([a {:keys [b c]}] (+ b c)) ([a & xs] xs) ([[c d]] (+ c d)))]
+    (are [original unformed] (= original unformed)
+        single-arity (conform-unform single-arity)
+        keys-destructuring (conform-unform keys-destructuring)
+        seq-destructuring (conform-unform seq-destructuring)
+        and-destructuring (conform-unform and-destructuring)
+        multiple-arities (conform-unform multiple-arities))))
 
 (ds/defn arg-1-fn [x :- int?]
   x)

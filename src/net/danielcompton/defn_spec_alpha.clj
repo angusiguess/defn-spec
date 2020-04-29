@@ -1,7 +1,90 @@
 (ns net.danielcompton.defn-spec-alpha
   (:refer-clojure :exclude [defn])
   (:require [clojure.spec.alpha :as s]
+            [net.danielcompton.defn-spec-alpha.spec :as spec]
             [net.danielcompton.defn-spec-alpha.macros :as macros]))
+
+(clojure.core/defn emit-param [[tag body]]
+  (case tag
+    ;; local-symbol is overloaded atm, we have our own annotated definition and the original clojure one
+    ;; it's worth disambiguating the two but this works
+    :local-symbol (or (:symbol body) body)
+    :map-destructure (:destructure-form body)
+    :seq-destructure (mapv emit-param (:forms body))))
+
+(clojure.core/defn spec->defn [spec]
+  (let [{:keys [fn-name ret-annotation docstring meta fn-tail]} spec
+        [tag body] fn-tail]
+    (case tag :arity-1
+          (let [params (get-in body [:params :params])
+                param-form (mapv emit-param params)
+                fn-body (get-in body [:body 1])
+                {:keys [doc tag] :as standard-meta} (meta fn-name)
+                fn-meta (cond-> standard-meta
+                          (macros/primitive-sym? tag) (dissoc :tag)
+                          docstring (assoc :doc docstring)
+                          true (assoc :arglists param-form))]
+            `(clojure.core/defn ~(with-meta fn-name {})
+               ~fn-meta
+               ~@fn-body)))))
+
+(spec->defn '{:fn-name test,
+              :ret-annotation {:spec-literal :-, :spec [:predicate-symbol int?]},
+              :docstring "Oh Hello"
+              :meta {},
+              :fn-tail
+              [:arity-1
+               {:params
+                {:params
+                 [[:local-symbol {:symbol a}]
+                  [:seq-destructure
+                   {:forms [[:local-symbol b] [:local-symbol c]]}]]},
+                :body [:body [(+ 1 1)]]}]})
+
+(defmacro defn-with-spec
+  "Like clojure.core/defn, except that spec typehints can be given on
+   the argument symbols and on the function name (for the return value).
+
+   (s/defn calculate-total :- number?
+    [qty :- :unit/quantity
+     price :- ::price]
+    (* qty price))
+
+   Gotchas and limitations:
+    - The output spec always goes on the fn name, not the arg vector. This
+      means that all arities must share the same :ret spec (as do all Clojure specs).
+      defn-spec will automatically propagate primitive hints to the arg vector and class hints
+      to the fn name, so that you get the behavior you expect from Clojure.
+    - spec metadata is only processed on top-level arguments.  I.e., you can
+      use destructuring, but you must put spec metadata on the top-level
+      arguments, not the destructured variables.
+      Bad:  (s/defn foo [{:keys [x :- ::x]}])
+      Good: (s/defn foo [{:keys [x]} :- (s/keys :req [::x])])
+    - Only a specific subset of rest-arg destructuring is supported:
+      - & rest works as expected
+      - & [a b] works, with specs for individual elements parsed out of the binding,
+        or an overall spec on the vector
+      - & {} is not supported.
+    - Unlike clojure.core/defn, a final attr-map on multi-arity functions
+      is not supported."
+  [& defn-args]
+  (let [spec (s/conform ::spec/defn-args defn-args)
+        {:keys [fn-name ret-annotation docstring meta fn-tail]} spec
+        _ (s/unform ::spec/defn-args spec)
+        [tag body] fn-tail]
+    (case tag :arity-1
+          (let [params (get-in body [:params :params])
+                param-form (mapv emit-param params)
+                fn-body (get-in body [:body 1])
+                _ (type fn-name)
+                {:keys [doc tag] :as standard-meta} (meta fn-name)
+                fn-meta (cond-> standard-meta
+                          (macros/primitive-sym? tag) (dissoc :tag)
+                          docstring (assoc :doc docstring)
+                          true (assoc :arglists param-form))]
+            `(clojure.core/defn ~(with-meta fn-name {})
+               ~fn-meta
+               ~@fn-body)))))
 
 (defmacro defn
   "Like clojure.core/defn, except that spec typehints can be given on
