@@ -42,6 +42,15 @@
 
 (s/def ::spec-annotation (s/cat :spec-literal #{:-} :spec any?))
 
+(defn annotated-arg-list-unformer [a]
+  (let [args-form (->> a
+                       (arg-list-unformer)
+                       (map (fn [x]
+                              (cond (not (seq? x)) (list x)
+                                    (map? x) (list x)
+                                    :else x))))]
+    (vec (apply concat args-form))))
+
 (defn annotated-defn-unformer [a]
   (if (and (coll? a) (= :- (first (first (rest a)))))
     (concat (take 1 a) (first (rest a)) (rest (rest a)))
@@ -53,8 +62,8 @@
 
 (s/def ::annotated-binding-form
   (s/alt :local-symbol (s/cat :local-name ::local-name
-                             :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))
-         :seq-destructure (s/cat :seq-binding-form ::seq-binding-form
+                              :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))
+         :seq-destructure (s/cat :seq-binding-form ::specs/seq-binding-form
                                  :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))
          :map-destructure (s/cat :map-binding-form ::specs/map-binding-form
                                  :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))))
@@ -62,7 +71,7 @@
 (s/def ::annotated-param-list
   (s/and
    vector?
-   (s/conformer identity arg-list-unformer)
+   (s/conformer identity annotated-arg-list-unformer)
    (s/cat :args (s/* ::annotated-binding-form)
           :varargs (s/? (s/cat :amp #{'&} :form ::annotated-binding-form)))))
 
@@ -87,10 +96,15 @@
 
 (->> '(a :- map? [b :- int?] b)
      (s/conform ::annotated-defn-args)
-     #_(s/unform ::annotated-defn-args))
+     (s/unform ::annotated-defn-args))
 
 (->> '(a :- map? [b :- int?] b)
-     (s/conform ::annotated-defn-args))
+     (s/explain ::annotated-defn-args))
 
 (->> '(a :- map? [{:keys [b c]} :- map?] (+ b c))
-     (s/conform ::annotated-defn-args))
+     (s/conform ::annotated-defn-args)
+     (s/unform ::annotated-defn-args))
+
+(->> '(a :- map? [b :- int? c :- int? & so-on :- int?] (+ b c))
+     (s/conform ::annotated-defn-args)
+     (s/unform ::annotated-defn-args))
