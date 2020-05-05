@@ -25,18 +25,36 @@
        (s/conform ::spec/defn-args)
        (s/unform ::spec/defn-args)))
 
+(defn annotated-conform-unform [sexpr]
+  (->> sexpr
+       (s/conform ::spec/annotated-defn-args)
+       (s/unform ::spec/annotated-defn-args)))
+
 (deftest conform-is-the-inverse-of-unform
-  (let [single-arity '(a [x] x)
-        keys-destructuring '(b [{:keys [a b c]}] (+ b c))
-        seq-destructuring '(c [[a b] c] (+ a c))
-        and-destructuring '(d [a & xs] xs)
-        multiple-arities '(e ([a] a) ([a {:keys [b c]}] (+ b c)) ([a & xs] xs) ([[c d]] (+ c d)))]
-    (are [original unformed] (= original unformed)
+  (testing "defn spec"
+    (let [single-arity '(a [x] x)
+          keys-destructuring '(b [{:keys [a b c]}] (+ b c))
+          seq-destructuring '(c [[a b] c] (+ a c))
+          and-destructuring '(d [a & xs] xs)
+          multiple-arities '(e ([a] a) ([a {:keys [b c]}] (+ b c)) ([a & xs] xs) ([[c d]] (+ c d)))]
+      (are [original unformed] (= original unformed)
         single-arity (conform-unform single-arity)
         keys-destructuring (conform-unform keys-destructuring)
         seq-destructuring (conform-unform seq-destructuring)
         and-destructuring (conform-unform and-destructuring)
         multiple-arities (conform-unform multiple-arities))))
+  (testing "annotated defn spec"
+    (let [only-ret '(a :- int? [b] b)
+          no-ret '(a :- int? [b :- int?] b)
+          map-destructuring '(a :- int? [{:keys [b c]} :- map?]
+                                (+ b c))
+          seq-destructuring '(a :- int? [& xs :- any?]
+                                (apply + xs))]
+      (are [original] (= original (annotated-conform-unform original))
+        only-ret
+        no-ret
+        map-destructuring
+        seq-destructuring))))
 
 (ds/defn arg-1-fn [x :- int?]
   x)

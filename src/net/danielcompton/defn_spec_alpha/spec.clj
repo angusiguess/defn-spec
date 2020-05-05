@@ -1,6 +1,7 @@
 (ns net.danielcompton.defn-spec-alpha.spec
   (:require [clojure.spec.alpha :as s]
-            [clojure.core.specs.alpha :as specs]))
+            [clojure.core.specs.alpha :as specs]
+            [clojure.walk :as walk]))
 
 ;; First, monkey-patch the specs.alpha spec so unforms and conform are inverses of each other.
 ;; https://blog.klipse.tech/clojure/2019/03/08/spec-custom-defn.html which in turn cites
@@ -93,18 +94,174 @@
                                           :attr-map (s/? map?))))))
 
 
+;; Annotated form
+'{:fn-name a,
+ :ret-annotation {:spec-literal :-, :spec map?},
+ :fn-tail
+ [:arity-1
+  {:params
+   {:args
+    [[:local-symbol
+      {:local-name b, :annotation {:spec-literal :-, :spec int?}}]
+     [:local-symbol
+      {:local-name c, :annotation {:spec-literal :-, :spec int?}}]],
+    :varargs
+    {:amp &,
+     :form
+     [:local-symbol
+      {:local-name so-on,
+       :annotation {:spec-literal :-, :spec int?}}]}},
+   :body [:body [(+ b c)]]}]}
+
+'{:fn-name a,
+ :fn-tail
+ [:arity-1
+  {:params
+   {:args [[:local-symbol b] [:local-symbol c]],
+    :varargs {:amp &, :form [:local-symbol so-on]}},
+   :body [:body [(+ b c)]]}]}
+
+;; Form without annotation
+
+
+(defn annotated-defn->defn [ast]
+  (walk/postwalk (fn [x]
+                   (cond (and (coll? x) (= (first x) :local-symbol))
+                         [:local-symbol (:local-name (last x))]
+                         (and (coll? x) (= (first x) :map-destructure))
+                         [:map-destructure (:map-binding-form (last x))]
+                         (and (coll? x) (= (first x) :seq-destructure))
+                         [:seq-destructure (:seq-binding-form (last x))]
+                         :else x)) ast))
+
+(defn nil->any? [spec]
+  (if (nil? spec) any?
+      spec))
+
+(defn nils->any? [specs]
+  (map nil->any? specs))
+
+(defn gen-argument-keys [args]
+  "Given a list of arguments obtained by conforming the ::annotated-defn-args spec,
+   generate a list of keywords to label the spec in s/cat. Because map destructures are
+   sometimes anonymous and seq destructures are always anonymous, we generate unique keys
+   to annote them and aid in legibility when functions are instrumented."
+  (let [keys-accumulator
+        (reduce (fn [acc [type params]]
+                  (case type
+                    :local-symbol (update acc :arg-keys conj (keyword (:local-name params)))
+                    :map-destructure (-> acc
+                                         (update :arg-keys
+                                                 conj
+                                                 (keyword
+                                                  (keyword (str "map-destructure-" (:map-destructure-count acc)))))
+                                         (update :map-destructure-count inc))
+                    :seq-destructure (-> acc
+                                         (update :arg-keys
+                                                 conj
+                                                 (keyword (str "seq-destructure-" (:seq-destructure-count acc))))
+                                         (update :seq-destructure-count inc))))
+                {:map-destructure-count 1
+                 :seq-destructure-count 1
+                 :arg-keys []}
+                args)]
+    (:arg-keys keys-accumulator)))
+
+(gen-argument-keys '[[:local-symbol
+                      {:local-name b, :annotation {:spec-literal :-, :spec int?}}]
+                     [:seq-destructure
+                      {:seq-binding-form
+                       {:forms [[:local-symbol c] [:local-symbol d]]}}]])
+
+(defn combine-arg-specs [{:keys [fn-tail]}]
+  ;; In the event of arity-1, check if anything is specified at all. If not, return nil
+  ;; If so, run through each form, generating either the annotation with label or the
+  ;; label with any?
+  (case (first fn-tail)
+    :arity-1
+    (let [{:keys [args varargs]} (:params (last fn-tail))
+          arg-specs (into [] (map #(get-in (last %) [:annotation :spec])) args)
+          arg-names (gen-argument-keys args)
+          vararg-spec (-> varargs
+                          :form
+                          last
+                          :annotation
+                          :spec)]
+      ;; If no arguments are specced, return nil
+      (when (some identity (conj arg-specs vararg-spec))
+        (let [specced-args (cond-> (vec (interleave arg-names (nils->any? arg-specs)))
+                             varargs (conj :vararg (nil->any? vararg-spec)))]
+          `(s/cat ~@specced-args))))
+    :arity-n
+    (let [{:keys [bodies]} (last fn-tail)
+          params (map :params bodies)
+          arg-lists (map :args params)
+          vararg-lists (map :varargs params)
+          arg-specs (map (fn [arglist]
+                           (map (fn [arg]
+                                  (get-in (last arg) [:annotation :spec]))
+                                arglist)) arg-lists)
+          vararg-specs (map (fn [vararg-list]
+                              (map (fn [vararg]
+                                     (-> vararg :form last :annotation :spec)) vararg-list)) vararg-lists)]
+      ;; If no arguments are specced, return nil
+      (when (some identity (conj (flatten arg-specs) (flatten vararg-specs)))
+        `(s/or
+          ;; TODO keywords to name the arities
+          ~@(map (fn [arg-list vararg]
+                  (let [arg-specs (into [] (comp (map #(get-in (last %) [:annotation :spec]))
+                                                 (map nil->any?)) arg-list)
+                        vararg-spec (-> vararg
+                                        :form
+                                        last
+                                        :annotation
+                                        :spec)
+                        arg-names (gen-argument-keys arg-list)]
+                    (let [specced-args (cond-> (vec (interleave arg-names arg-specs))
+                                         vararg (conj :vararg (nil->any? vararg-spec)))]
+                      `(s/cat ~@specced-args))))
+                arg-lists vararg-lists))))))
+
+(combine-arg-specs '{:fn-name a,
+                     :ret-annotation {:spec-literal :-, :spec map?},
+                     :fn-tail
+                     [:arity-1
+                      {:params
+                       {:args
+                        [[:local-symbol
+                          {:local-name b, :annotation {:spec-literal :-, :spec int?}}]
+                         [:local-symbol
+                          {:local-name c}]],
+                        :varargs
+                        {:amp &,
+                         :form
+                         [:local-symbol
+                          {:local-name so-on,
+                           :annotation {:spec-literal :-, :spec int?}}]}},
+                       :body [:body [(+ b c)]]}]})
+
+
+(->> '(a :- map?
+         ([b :- int?] b)
+         ([c :- int? d & e] (+ c d)))
+     (s/conform ::annotated-defn-args)
+     combine-arg-specs)
 
 (->> '(a :- map? [b :- int?] b)
      (s/conform ::annotated-defn-args)
-     (s/unform ::annotated-defn-args))
+     combine-arg-specs
+     #_(s/unform ::annotated-defn-args))
 
-(->> '(a :- map? [b :- int?] b)
-     (s/explain ::annotated-defn-args))
+(->> '(a :- map? [b :- int? [c d]] b)
+     (s/conform ::annotated-defn-args))
 
 (->> '(a :- map? [{:keys [b c]} :- map?] (+ b c))
      (s/conform ::annotated-defn-args)
-     (s/unform ::annotated-defn-args))
+     #_(s/unform ::annotated-defn-args))
 
-(->> '(a :- map? [b :- int? c :- int? & so-on :- int?] (+ b c))
+(->> '(a :- map? [b :- int? c :- int? & so-on] (+ b c))
      (s/conform ::annotated-defn-args)
-     (s/unform ::annotated-defn-args))
+     combine-arg-specs
+     #_(s/unform ::defn-args))
+
+(s/conform ::annotated-defn-args '(a [[b c]] (+ b c)))

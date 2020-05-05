@@ -5,7 +5,8 @@
             :url  "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.10.0" :scope "provided"]
                  [org.clojure/clojurescript "1.9.562" :scope "provided"]
-                 [prismatic/schema "1.1.10"]]
+                 [prismatic/schema "1.1.10"]
+                 [org.clojure/test.check "1.0.0"]]
   :deploy-repositories [["releases" :clojars]
                        ["snapshots" :clojars]]
   :release-tasks [["vcs" "assert-committed"]
