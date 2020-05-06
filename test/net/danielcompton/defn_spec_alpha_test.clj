@@ -106,7 +106,7 @@
          '(fspec :args (cat :x ::int) :ret int? :fn nil)))
 
   ;; TODO: shouldn't define any :args spec if none is provided, #1
-  #_(is (= (maybe-describe `ret-spec)
+  (is (= (maybe-describe `ret-spec)
          '(fspec :args nil :ret ::int :fn nil)))
 
   (is (= (maybe-describe `arg-2)
@@ -129,56 +129,54 @@
 (deftest multi-arity-test
   (testing "works with no specs"
     (is (= 0 (multi-arity)))
-    ;; TODO: not working yet, see #2
-    #_(is (= 1 (multi-arity nil)))
-    #_(is (= 2 (multi-arity nil nil)))
-    #_(is (= 3 (multi-arity nil nil nil))))
+    (is (= 1 (multi-arity nil)))
+    (is (= 2 (multi-arity nil nil)))
+    (is (= 3 (multi-arity nil nil nil))))
 
   (testing "works with specs"
     (is (= (multi-arity-spec) 0))
-    #_(is (= (multi-arity-spec 5) 1))))
+    (is (= (multi-arity-spec 5) 1))
+    (is (thrown? ExceptionInfo (multi-arity-spec :x)))))
 
-; TODO: Broken, see #3
-;(ds/defn rest-destructuring-1
-;  [& rest]
-;  rest)
-;
-;(ds/defn rest-destructuring-2 [head & tail]
-;  [head tail])
-;
-;(deftest rest-destructuring-test)
+(ds/defn rest-destructuring-1
+  [& rest]
+  rest)
 
-; TODO: Broken, see #4
-;(ds/defn destructuring-list :- ::int
-;  [a :- ::int b :- int? & [c d]]
-;  [a b c d])
+(ds/defn rest-destructuring-2 [head & tail]
+  [head tail])
+
+(deftest rest-destructuring-test)
 
 
-; TODO: Broken, see #10
-;(s/def ::foo string?)
-;(s/def ::keys-test (s/keys :req-un [::int ::foo]))
+;; Something is broken with this
+#_(ds/defn destructuring-list :- ::int
+  [a :- ::int b :- int? & [c d]]
+  [a b c d])
+
+
+(s/def ::foo string?)
+(s/def ::keys-test (s/keys :req-un [::int ::foo]))
+
+
+(ds/defn keys-destructuring-unnamed
+  [{:keys [int foo]} :- ::keys-test]
+  [int foo])
+
+(ds/defn keys-destructuring-named
+  [{:keys [int foo] :as test-map} :- ::keys-test]
+  [int foo])
+
+
+(deftest keys-destructuring-test
+  (testing "destructuring maps without an :as"
+    (is (= (keys-destructuring-unnamed {:int 1 :foo "hi"}) [1 "hi"]))
+    (is (thrown? ExceptionInfo
+                 (keys-destructuring-unnamed {:int 5 :foo 5}))))
 ;
-;; Speccing keys
-;(ds/defn keys-destructuring-unnamed
-;  [{:keys [int foo]} :- ::keys-test]
-;  [int foo])
-;
-;(ds/defn keys-destructuring-named
-;  [{:keys [int foo] :as test-map} :- ::keys-test]
-;  [int foo])
-;
-;
-;(deftest keys-destructuring-test
-;  (testing "destructuring maps without an :as"
-;    (is (= (keys-destructuring-unnamed {:int 1 :foo "hi"}) [1 "hi"]))
-;    (is (thrown? ExceptionInfo
-;                 (keys-destructuring-unnamed {:int 5 :foo 5}))))
-;
-;  (testing "destructuring maps with an :as"
-;    (is (= (keys-destructuring-named {:int 1 :foo "hi"}) [1 "hi"]))
-;    (is (thrown? ExceptionInfo
-;                 (keys-destructuring-named {:int 5 :foo 5}))))
-;  )
+  (testing "destructuring maps with an :as"
+    (is (= (keys-destructuring-named {:int 1 :foo "hi"}) [1 "hi"]))
+    (is (thrown? ExceptionInfo
+                 (keys-destructuring-named {:int 5 :foo 5})))))
 
 
 (clojure.core/defn standard-defn [x]
@@ -209,8 +207,5 @@
     (is (some? (get-spec `only-ret)))))
 
 (comment
-  (s/describe (get @@#'clojure.spec.alpha/registry-ref `arg-1-spec))
-
-
-  )
+  (s/describe (get @@#'clojure.spec.alpha/registry-ref `arg-1-spec)))
 

@@ -173,6 +173,9 @@
                       {:seq-binding-form
                        {:forms [[:local-symbol c] [:local-symbol d]]}}]])
 
+(defn arity-labels []
+  (map (fn [x] (keyword (str "arity-" x))) (iterate inc 1)))
+
 (defn combine-arg-specs [{:keys [fn-tail]}]
   ;; In the event of arity-1, check if anything is specified at all. If not, return nil
   ;; If so, run through each form, generating either the annotation with label or the
@@ -189,9 +192,10 @@
                           :spec)]
       ;; If no arguments are specced, return nil
       (when (some identity (conj arg-specs vararg-spec))
-        (let [specced-args (cond-> (vec (interleave arg-names (nils->any? arg-specs)))
-                             varargs (conj :vararg (nil->any? vararg-spec)))]
-          `(s/cat ~@specced-args))))
+        (let [specced-args (vec (interleave arg-names (nils->any? arg-specs)))]
+          (if varargs
+            `(s/cat ~@specced-args :vararg (s/? ~(nil->any? vararg-spec)))
+            `(s/cat ~@specced-args)))))
     :arity-n
     (let [{:keys [bodies]} (last fn-tail)
           params (map :params bodies)
@@ -207,20 +211,21 @@
       ;; If no arguments are specced, return nil
       (when (some identity (conj (flatten arg-specs) (flatten vararg-specs)))
         `(s/or
-          ;; TODO keywords to name the arities
-          ~@(map (fn [arg-list vararg]
-                  (let [arg-specs (into [] (comp (map #(get-in (last %) [:annotation :spec]))
-                                                 (map nil->any?)) arg-list)
-                        vararg-spec (-> vararg
-                                        :form
-                                        last
-                                        :annotation
-                                        :spec)
-                        arg-names (gen-argument-keys arg-list)]
-                    (let [specced-args (cond-> (vec (interleave arg-names arg-specs))
-                                         vararg (conj :vararg (nil->any? vararg-spec)))]
-                      `(s/cat ~@specced-args))))
-                arg-lists vararg-lists))))))
+          ~@(interleave (arity-labels)
+                        (map (fn [arg-list vararg]
+                               (let [arg-specs (into [] (comp (map #(get-in (last %) [:annotation :spec]))
+                                                              (map nil->any?)) arg-list)
+                                     vararg-spec (-> vararg
+                                                     :form
+                                                     last
+                                                     :annotation
+                                                     :spec)
+                                     arg-names (gen-argument-keys arg-list)]
+                                 (let [specced-args (vec (interleave arg-names arg-specs))]
+                                   (if vararg
+                                     `(s/cat ~@specced-args :varargs (s/? ~(nil->any? vararg-spec)))
+                                     `(s/cat ~@specced-args)))))
+                             arg-lists vararg-lists)))))))
 
 (combine-arg-specs '{:fn-name a,
                      :ret-annotation {:spec-literal :-, :spec map?},
