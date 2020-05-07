@@ -1,6 +1,5 @@
 (ns net.danielcompton.defn-spec-alpha.spec
   (:require [clojure.spec.alpha :as s]
-            [clojure.core.specs.alpha :as specs]
             [clojure.walk :as walk]))
 
 ;; First, monkey-patch the specs.alpha spec so unforms and conform are inverses of each other.
@@ -18,12 +17,41 @@
      (concat (drop-last a) (last a))
      a)))
 
+(s/def ::seq-binding-form
+  (s/and vector?
+         (s/conformer identity vec)
+         (s/cat :forms (s/* ::binding-form)
+                :rest-forms (s/? (s/cat :ampersand #{'&} :form ::binding-form))
+                :as-form (s/? (s/cat :as #{:as} :as-sym ::local-name)))))
+
+(s/def ::map-special-binding
+  (s/keys :opt-un [::as ::or ::keys ::syms ::strs]))
+
+(s/def ::ns-keys
+  (s/tuple
+    (s/and qualified-keyword? #(-> % name #{"keys" "syms"}))
+    (s/coll-of simple-symbol? :kind vector?)))
+
+(s/def ::map-binding (s/tuple ::binding-form any?))
+
+(s/def ::map-bindings
+  (s/every (s/or :map-binding ::map-binding
+                 :qualified-keys-or-syms ::ns-keys
+                 :special-binding (s/tuple #{:as :or :keys :syms :strs} any?)) :kind map?))
+
+(s/def ::map-binding-form (s/merge ::map-bindings ::map-special-binding))
+
+(s/def ::binding-form
+  (s/or :local-symbol ::local-name
+        :seq-destructure ::seq-binding-form
+        :map-destructure ::map-binding-form))
+
 (s/def ::param-list
        (s/and
         vector?
         (s/conformer identity arg-list-unformer)
-        (s/cat :args (s/* ::specs/binding-form)
-               :varargs (s/? (s/cat :amp #{'&} :form ::specs/binding-form)))))
+        (s/cat :args (s/* ::binding-form)
+               :varargs (s/? (s/cat :amp #{'&} :form ::binding-form)))))
 
 (s/def ::params+body
   (s/cat :params ::param-list
@@ -59,14 +87,14 @@
 
 (s/def ::local-name (s/and simple-symbol? #(not= '& %)))
 
-(s/def ::annotated-map-binding-form (s/merge ::specs/map-bindings ::specs/map-special-binding))
+(s/def ::annotated-map-binding-form (s/merge ::map-bindings ::map-special-binding))
 
 (s/def ::annotated-binding-form
   (s/alt :local-symbol (s/cat :local-name ::local-name
                               :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))
-         :seq-destructure (s/cat :seq-binding-form ::specs/seq-binding-form
+         :seq-destructure (s/cat :seq-binding-form ::seq-binding-form
                                  :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))
-         :map-destructure (s/cat :map-binding-form ::specs/map-binding-form
+         :map-destructure (s/cat :map-binding-form ::map-binding-form
                                  :annotation (s/? (s/cat :spec-literal #{:-} :spec any?)))))
 
 (s/def ::annotated-param-list
@@ -149,7 +177,7 @@
                         :else x)) ast))
 
 (defn nil->any? [spec]
-  (if (nil? spec) any?
+  (if (nil? spec) 'any?
       spec))
 
 (defn nils->any? [specs]
@@ -242,7 +270,7 @@
                              arg-lists vararg-lists)))))))
 
 (combine-arg-specs '{:fn-name a,
-                     :ret-annotation {:spec-literal :-, :spec map?},
+                      :ret-annotation {:spec-literal :-, :spec map?},
                      :fn-tail
                      [:arity-1
                       {:params
@@ -296,3 +324,11 @@
      annotated-defn->defn)
 
 (s/conform ::annotated-defn-args '(a [[b c]] (+ b c)))
+
+(s/conform ::defn-args '(a [[b c]] (+ b c)))
+
+(->> '(a [[b c] & [d e]] (+ b c))
+     (s/conform ::annotated-defn-args)
+     (s/unform ::annotated-defn-args))
+
+
