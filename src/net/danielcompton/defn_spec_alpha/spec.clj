@@ -126,11 +126,11 @@
 
 (defn annotated-args->args [ast]
   (walk/postwalk (fn [x]
-                   (cond (and (coll? x) (= (first x) :local-symbol))
+                   (cond (and (map-entry? x) (= :local-symbol (key x)))
                          [:local-symbol (:local-name (last x))]
-                         (and (coll? x) (= (first x) :map-destructure))
+                         (and (map-entry? x) (= :map-destructure (key x)))
                          [:map-destructure (:map-binding-form (last x))]
-                         (and (coll? x) (= (first x) :seq-destructure))
+                         (and (map-entry? x) (= :seq-destructure (key x)))
                          [:seq-destructure (:seq-binding-form (last x))]
                          :else x)) ast))
 
