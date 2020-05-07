@@ -149,7 +149,7 @@
 
 
 ;; Something is broken with this
-#_(ds/defn destructuring-list :- ::int
+(ds/defn destructuring-list :- ::int
   [a :- ::int b :- int? & [c d]]
   [a b c d])
 

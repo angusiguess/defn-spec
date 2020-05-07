@@ -124,7 +124,7 @@
 ;; Form without annotation
 
 
-(defn annotated-defn->defn [ast]
+(defn annotated-args->args [ast]
   (walk/postwalk (fn [x]
                    (cond (and (coll? x) (= (first x) :local-symbol))
                          [:local-symbol (:local-name (last x))]
@@ -133,6 +133,18 @@
                          (and (coll? x) (= (first x) :seq-destructure))
                          [:seq-destructure (:seq-binding-form (last x))]
                          :else x)) ast))
+
+(defn annotated-varargs->args [ast]
+  (walk/postwalk (fn [x]
+                   (cond (and (coll? x) (:annotation x)) (dissoc x :annotation)
+                         (and (map-entry? x) (= :seq-binding-form (key x))) (val x)
+                         :else x)) ast))
+
+(defn annotated-defn->defn [ast]
+  (walk/prewalk (fn [x]
+                  (cond (and (map-entry? x) (= :args (key x))) (annotated-args->args x)
+                        (and (map-entry? x) (= :varargs (key x))) (annotated-varargs->args x)
+                        :else x)) ast))
 
 (defn nil->any? [spec]
   (if (nil? spec) any?
@@ -245,6 +257,13 @@
                            :annotation {:spec-literal :-, :spec int?}}]}},
                        :body [:body [(+ b c)]]}]})
 
+
+(->> '(destructuring-list :- ::int
+                          [a :- ::int b :- int? & [c d]]
+                          [a b c d])
+     (s/conform ::annotated-defn-args)
+     annotated-defn->defn
+     #_(s/unform ::defn-args))
 
 (->> '(a :- map?
          ([b :- int?] b)
