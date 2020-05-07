@@ -35,7 +35,7 @@
         defn-form (->> ast
                        (spec/annotated-defn->defn)
                        (s/unform ::spec/defn-args))
-        arg-spec (spec/combine-arg-specs ast)
+        arg-spec (macros/combine-arg-specs ast)
         ret-spec (get-in ast [:ret-annotation :spec])
         fn-name (:fn-name ast)]
     `(do
