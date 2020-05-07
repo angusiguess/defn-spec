@@ -148,7 +148,6 @@
 (deftest rest-destructuring-test)
 
 
-;; Something is broken with this
 (ds/defn destructuring-list :- ::int
   [a :- ::int b :- int? & [c d]]
   [a b c d])
