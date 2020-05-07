@@ -137,6 +137,8 @@
 (defn annotated-varargs->args [ast]
   (walk/postwalk (fn [x]
                    (cond (and (coll? x) (:annotation x)) (dissoc x :annotation)
+                         (and (map-entry? x) (= :local-symbol (key x)) (:local-name (val x)))
+                         [:local-symbol (:local-name (val x))]
                          (and (map-entry? x) (= :seq-binding-form (key x))) (val x)
                          :else x)) ast))
 
@@ -287,5 +289,10 @@
      (s/conform ::annotated-defn-args)
      combine-arg-specs
      #_(s/unform ::defn-args))
+
+(->> '(rest-destructuring-1 [& rest]
+                            rest)
+     (s/conform ::annotated-defn-args)
+     annotated-defn->defn)
 
 (s/conform ::annotated-defn-args '(a [[b c]] (+ b c)))
